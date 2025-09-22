@@ -1,0 +1,46 @@
+name: Deploy Azure Functions (Staging)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  AZURE_FUNCTIONAPP_NAME: empirecommandcenter-altus-staging   # <- your Function App name
+  PACKAGE_PATH: .
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tooling (zip)
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Validate required files
+        run: |
+          test -f host.json
+          test -f requirements.txt
+          test -f ping/function.json
+          test -f ping/__init__.py
+
+      # Create a zip of the source (Functions will run-from-package)
+      - name: Archive package
+        run: |
+          zip -qr functionapp.zip $PACKAGE_PATH \
+            -x '**/.git*' '**/.github/**' '**/tests/**' '**/__pycache__/**' 'local.settings.json'
+
+      - name: Deploy to Azure Functions
+        uses: azure/functions-action@v1
+        with:
+          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+          package: functionapp.zip
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
