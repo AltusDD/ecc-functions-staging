@@ -1,1 +1,7 @@
-{ "scriptFile": "__init__.py", "bindings": [ { "authLevel": "anonymous", "type": "httpTrigger", "direction": "in", "name": "req", "methods": [ "get" ], "route": "legal/export/cases" }, { "type": "http", "direction": "out", "name": "res" } ] }
+{
+  "scriptFile": "__init__.py",
+  "bindings": [
+    { "authLevel":"anonymous","type":"httpTrigger","direction":"in","name":"req","methods":["get"],"route":"legal/export/cases" },
+    { "type":"http","direction":"out","name":"res" }
+  ]
+}

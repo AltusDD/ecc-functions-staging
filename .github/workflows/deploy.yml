@@ -1,0 +1,25 @@
+name: Deploy Functions (Staging)
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Zip package
+        run: zip -rq package.zip .
+
+      - name: Deploy via Run-From-Package
+        uses: azure/functions-action@v1
+        with:
+          app-name: empirecommandcenter-altus-staging
+          package: package.zip
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
