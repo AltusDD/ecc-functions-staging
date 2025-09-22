@@ -1,0 +1,7 @@
+# Local-only config and tooling
+local.settings.json
+.vscode/
+.git/
+.github/
+tests/
+__pycache__/
