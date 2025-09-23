@@ -1,46 +1,69 @@
-name: Deploy Azure Functions (Staging)
+name: Deploy Functions (Staging)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main" ]    # change if you deploy from a different branch
   workflow_dispatch:
 
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
 env:
-  AZURE_FUNCTIONAPP_NAME: empirecommandcenter-altus-staging   # <- your Function App name
-  PACKAGE_PATH: .
+  AZURE_FUNCTIONAPP_NAME: empirecommandcenter-altus-staging
+  AZURE_RESOURCE_GROUP: empirecommandcenter-altus-staging_group
+  PYTHON_VERSION: "3.11"
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install tooling (zip)
-        run: sudo apt-get update && sudo apt-get install -y zip
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Validate required files
+      - name: Ensure Function App runtime settings
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            az functionapp config appsettings set \
+              -g $AZURE_RESOURCE_GROUP -n $AZURE_FUNCTIONAPP_NAME \
+              --settings FUNCTIONS_WORKER_RUNTIME=python FUNCTIONS_EXTENSION_VERSION=~4
+
+            az functionapp config set \
+              -g $AZURE_RESOURCE_GROUP -n $AZURE_FUNCTIONAPP_NAME \
+              --linux-fx-version "Python|${{ env.PYTHON_VERSION }}"
+
+      - name: Create function package (source only)
         run: |
-          test -f host.json
-          test -f requirements.txt
-          test -f ping/function.json
-          test -f ping/__init__.py
+          zip -r functionapp.zip . \
+            -x ".git/*" ".github/*" "tests/*" "__pycache__/*" "*.pyc"
 
-      # Create a zip of the source (Functions will run-from-package)
-      - name: Archive package
-        run: |
-          zip -qr functionapp.zip $PACKAGE_PATH \
-            -x '**/.git*' '**/.github/**' '**/tests/**' '**/__pycache__/**' 'local.settings.json'
-
-      - name: Deploy to Azure Functions
+      - name: Deploy to Azure Functions (remote build)
         uses: azure/functions-action@v1
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
           package: functionapp.zip
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+          respect-funcignore: false
+          scm-do-build-during-deployment: true
+          enable-oryx-build: true
+          remote-build: true
+
+      - name: Smoke test
+        run: |
+          BASE="https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net"
+          echo "PING:" && curl -i "$BASE/api/ping" || true
+          echo "PORTFOLIO:" && curl -i "$BASE/api/portfolio/properties" || true
+          echo "LEGAL EXPORT:" && curl -i "$BASE/api/legal/export/cases" || true
