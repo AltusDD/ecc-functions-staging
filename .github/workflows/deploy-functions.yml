@@ -1,13 +1,9 @@
-name: Deploy Functions (Staging)
+name: Deploy Azure Functions (staging)
 
 on:
   push:
-    branches: [ "main" ]    # change if you deploy from a different branch
+    branches: [ "main" ]
   workflow_dispatch:
-
-permissions:
-  id-token: write   # required for OIDC
-  contents: read
 
 env:
   AZURE_FUNCTIONAPP_NAME: empirecommandcenter-altus-staging
@@ -17,6 +13,10 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Checkout
@@ -34,36 +34,38 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Ensure Function App runtime settings
-        uses: azure/CLI@v2
-        with:
-          inlineScript: |
-            az functionapp config appsettings set \
-              -g $AZURE_RESOURCE_GROUP -n $AZURE_FUNCTIONAPP_NAME \
-              --settings FUNCTIONS_WORKER_RUNTIME=python FUNCTIONS_EXTENSION_VERSION=~4
-
-            az functionapp config set \
-              -g $AZURE_RESOURCE_GROUP -n $AZURE_FUNCTIONAPP_NAME \
-              --linux-fx-version "Python|${{ env.PYTHON_VERSION }}"
-
-      - name: Create function package (source only)
+      - name: Configure app for remote build
         run: |
-          zip -r functionapp.zip . \
-            -x ".git/*" ".github/*" "tests/*" "__pycache__/*" "*.pyc"
+          az functionapp config appsettings set \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ env.AZURE_FUNCTIONAPP_NAME }}" \
+            --settings FUNCTIONS_WORKER_RUNTIME=python FUNCTIONS_EXTENSION_VERSION=~4 \
+                       SCM_DO_BUILD_DURING_DEPLOYMENT=true ENABLE_ORYX_BUILD=true
 
-      - name: Deploy to Azure Functions (remote build)
+      - name: Ensure Linux Python runtime
+        run: |
+          az functionapp config set \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ env.AZURE_FUNCTIONAPP_NAME }}" \
+            --linux-fx-version "Python|${{ env.PYTHON_VERSION }}"
+
+      - name: Deploy Functions (remote build)
         uses: azure/functions-action@v1
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-          package: functionapp.zip
-          respect-funcignore: false
+          package: .
+          respect-funcignore: true
+          remote-build: true
           scm-do-build-during-deployment: true
           enable-oryx-build: true
-          remote-build: true
 
       - name: Smoke test
+        continue-on-error: true
         run: |
           BASE="https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net"
-          echo "PING:" && curl -i "$BASE/api/ping" || true
-          echo "PORTFOLIO:" && curl -i "$BASE/api/portfolio/properties" || true
-          echo "LEGAL EXPORT:" && curl -i "$BASE/api/legal/export/cases" || true
+          echo "GET $BASE/api/ping"
+          curl -i --max-time 20 "$BASE/api/ping" || true
+          echo "GET $BASE/api/legal/export/cases"
+          curl -i --max-time 20 "$BASE/api/legal/export/cases" || true
+          echo "GET $BASE/api/portfolio/properties"
+          curl -i --max-time 20 "$BASE/api/portfolio/properties" || true
